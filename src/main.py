@@ -19,6 +19,11 @@ import asyncio
 import sys
 from pathlib import Path
 
+# Windows redirected terminals may default to cp1252; lab messages use Vietnamese.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8")
+
 # Cho phép chạy ``python src/main.py`` từ gốc repo
 _SRC_DIR = Path(__file__).resolve().parent
 if str(_SRC_DIR) not in sys.path:
@@ -134,10 +139,11 @@ async def part4_attacks():
 
 
 async def main(parts=None):
-    setup_api_key()
-
     if parts is None:
         parts = [2, 3, 4]  # Core: CP2 → CP3 → CP4
+
+    if 3 in parts or 4 in parts:
+        setup_api_key(require_blue=3 in parts, require_red=4 in parts)
 
     for part in parts:
         if part == 2:

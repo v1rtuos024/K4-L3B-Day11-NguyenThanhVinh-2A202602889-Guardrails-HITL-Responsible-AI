@@ -8,10 +8,11 @@ from core.openai_runtime import OpenAIRunner
 async def chat_with_agent(agent, runner, user_message: str, session_id=None):
     """Send a message to the agent and get the response.
 
-    Works with OpenAIRunner (OpenAI Red / OpenRouter Blue) and Google ADK (Gemini Red).
+    Works with the compatible SDK runtime (Mistral/Cohere/OpenAI/OpenRouter)
+    and Google ADK (Gemini Red).
     """
     provider = getattr(runner, "provider", None)
-    if isinstance(runner, OpenAIRunner) or provider in ("openrouter", "openai"):
+    if isinstance(runner, OpenAIRunner) or provider in ("openrouter", "openai", "mistral", "cohere"):
         text = await runner.chat(agent, user_message)
         return text, None
 

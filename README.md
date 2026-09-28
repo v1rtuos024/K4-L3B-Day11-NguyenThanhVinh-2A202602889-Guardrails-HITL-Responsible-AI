@@ -4,6 +4,45 @@
 > 🎯 **Mục tiêu:** xây **Blue** (phòng thủ), rồi red-team **Red** + **Red Advance**.  
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).
 
+**Học viên:** Nguyễn Thanh Vinh · **MSSV:** 2A202602889 · **Lớp:** K4-L3B.
+
+Implementation CP2–CP4: chuẩn hóa Unicode và tiếng Việt trước khi kiểm tra injection/topic;
+che PII, secret demo và host nội bộ sau model; sliding window theo từng user.
+Audit và monitoring là observer bên ngoài, ghi nhận cả request bị chặn, lớp quyết định và latency.
+Pipeline chạy Blue qua API Mistral `ministral-8b-latest`; các nhóm test dùng user riêng,
+nhóm spam dùng chung một user và đo tại tầng nhận request trước LLM, không sinh câu trả lời giả.
+Egress kiểm tra HTTPS, hostname chính xác và payload bằng code.
+CP4 dùng năm kỹ thuật khác nhau trên Red và Red Advance; không sửa các agent hoặc secret mẫu.
+Chọn bonus B1 nếu có leak Red; kết quả cần được grader replay xác nhận.
+
+Theo yêu cầu của học viên, cấu hình hiện tại dùng **Blue = Mistral**,
+**Red và Red Advance = Cohere** (`command-a-03-2025`). Kết quả ghi đúng provider/model.
+Các provider/model này khác yêu cầu gốc trong rubric; tài liệu starter bên dưới giữ mô tả đề gốc.
+Runtime dùng OpenAI SDK với endpoint tương thích của từng provider; không cần cài thêm SDK.
+
+Điền `MISTRAL_API_KEY` và `COHERE_API_KEY` trong `.env` theo `.env.example`:
+
+```dotenv
+BLUE_PROVIDER=mistral
+BLUE_MODEL=ministral-8b-latest
+RED_TEAM_PROVIDER=cohere
+RED_MODEL=command-a-03-2025
+```
+
+Lấy key tại [Mistral Console](https://console.mistral.ai/) và
+[Cohere Dashboard](https://dashboard.cohere.com/). CP2 chạy local, CP3 cần key Blue,
+CP4 cần key Red. `BLUE_MODEL`/`RED_MODEL` ưu tiên hơn model theo provider.
+
+Chạy từ gốc repo bằng Python trong virtualenv:
+
+```powershell
+.\.venv\Scripts\python.exe src/main.py --part 2
+.\.venv\Scripts\python.exe src/main.py --part 3
+.\.venv\Scripts\python.exe src/main.py --part 4
+.\.venv\Scripts\python.exe -m pytest tests -q
+.\.venv\Scripts\python.exe scripts/grade.py --submission-dir . --out outputs/grade_report.json
+```
+
 ---
 
 ## Thời lượng

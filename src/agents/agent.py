@@ -2,7 +2,7 @@
 Lab 11 — Agent factories
 
   Blue         → create_blue_agent(plugins)
-                 OpenRouter liquid/lfm-2.5-2.6b (LOCKED) + student plugins
+                 Mistral ministral-8b-latest + student plugins (configurable)
   Red          → create_red_agent_default()
                  mềm (không guardrails mạnh)
   Red Advance  → create_red_agent_advance()  (xem guards_agent.py)
@@ -57,7 +57,7 @@ PROTECTED_INSTRUCTION = BLUE_INSTRUCTION
 
 
 def create_red_agent_default():
-    """Red — NO guardrails. Model mềm cố định (4o-mini / 3.5-flash)."""
+    """Red — NO guardrails; model/provider selected in configuration."""
     soft = get_red_model_default()
     if red_uses_openai_sdk():
         from core.openai_runtime import create_openai_pair
@@ -92,12 +92,12 @@ def create_red_agent_default():
         return agent, runner
 
     raise RuntimeError(
-        "RED_TEAM_PROVIDER phải là openai hoặc gemini. Xem .env.example."
+        "Unsupported RED_TEAM_PROVIDER. See .env.example."
     )
 
 
 def create_blue_agent(plugins: list):
-    """Blue — ALWAYS OpenRouter liquid/lfm-2.5-2.6b + student plugins."""
+    """Blue — configured API/model + student plugins."""
     from core.openai_runtime import create_blue_pair
 
     agent, runner = create_blue_pair(

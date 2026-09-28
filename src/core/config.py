@@ -4,16 +4,16 @@ Lab 11 — Configuration, provider selection, API keys.
 Hai tầng model (không trộn):
 
   Blue Team (CP2–CP3, guardrails / pipeline / protected agent)
-    → CỐ ĐỊNH OpenRouter ``liquid/lfm-2.5-2.6b``
-       https://openrouter.ai/liquid/lfm-2.5-2.6b
-    → Cần ``OPENROUTER_API_KEY``
+    → Mistral ``ministral-8b-latest`` (student-requested override)
+    → Cần ``MISTRAL_API_KEY``
 
   Red Team (CP4)
-    → Chọn một provider: OpenAI hoặc Gemini
+    → Cohere ``command-a-03-2025`` (student-requested override)
+    → Cần ``COHERE_API_KEY``; vẫn hỗ trợ OpenAI / Gemini cho cấu hình cũ
     → Model mềm (điểm bắt buộc CP4): ``gpt-4o-mini`` / ``gemini-3.5-flash``
     → Model khó (tuỳ chọn): ``gpt-5.6-luna`` / ``gemini-3.8-flash``
     → Bonus: chọn một — leak **Red** tối đa +5 **hoặc** leak **Red Advance** tối đa +10
-    → ``RED_TEAM_PROVIDER=openai|gemini`` (alias: ``LLM_PROVIDER``)
+    → ``RED_TEAM_PROVIDER=cohere|mistral|openai|gemini|openrouter``
 """
 from __future__ import annotations
 
@@ -33,12 +33,19 @@ except ImportError:
 PROVIDER_OPENAI = "openai"
 PROVIDER_GEMINI = "gemini"
 PROVIDER_OPENROUTER = "openrouter"
+PROVIDER_MISTRAL = "mistral"
+PROVIDER_COHERE = "cohere"
 
-# --- Blue Team (LOCKED) ---
-BLUE_PROVIDER = PROVIDER_OPENROUTER
-BLUE_MODEL = "liquid/lfm-2.5-2.6b"
+# --- Blue Team (configured in code) ---
+BLUE_PROVIDER = PROVIDER_MISTRAL
+# Explicit student request overrides the starter's Liquid model requirement.
+BLUE_MODEL = "ministral-8b-latest"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_OPENROUTER_MODEL = BLUE_MODEL  # alias
+DEFAULT_OPENROUTER_MODEL = "thinkingmachines/inkling"
+DEFAULT_MISTRAL_MODEL = "ministral-8b-latest"
+DEFAULT_COHERE_MODEL = "command-a-03-2025"
+MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
+COHERE_BASE_URL = "https://api.cohere.ai/compatibility/v1"
 
 # --- Red Team ---
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
@@ -96,16 +103,60 @@ except FileNotFoundError:
 
 
 # ---------------------------------------------------------------------------
-# Blue Team — fixed OpenRouter Liquid
+# Provider routing — keys and endpoints stay paired
 # ---------------------------------------------------------------------------
 
+_SDK_PROVIDERS = frozenset({PROVIDER_OPENAI, PROVIDER_OPENROUTER,
+                            PROVIDER_MISTRAL, PROVIDER_COHERE})
+_PROVIDER_KEYS = {
+    PROVIDER_OPENAI: "OPENAI_API_KEY", PROVIDER_OPENROUTER: "OPENROUTER_API_KEY",
+    PROVIDER_MISTRAL: "MISTRAL_API_KEY", PROVIDER_COHERE: "COHERE_API_KEY",
+    PROVIDER_GEMINI: "GOOGLE_API_KEY",
+}
+_MODEL_DEFAULTS = {
+    PROVIDER_OPENAI: DEFAULT_OPENAI_MODEL, PROVIDER_GEMINI: DEFAULT_GEMINI_MODEL,
+    PROVIDER_OPENROUTER: DEFAULT_OPENROUTER_MODEL,
+    PROVIDER_MISTRAL: DEFAULT_MISTRAL_MODEL, PROVIDER_COHERE: DEFAULT_COHERE_MODEL,
+}
+
+
+def _selected_provider(raw: str, *, allow_gemini: bool = False) -> str:
+    provider = raw.strip().lower()
+    provider = {"google": PROVIDER_GEMINI, "adk": PROVIDER_GEMINI}.get(provider, provider)
+    allowed = _SDK_PROVIDERS | ({PROVIDER_GEMINI} if allow_gemini else set())
+    if provider not in allowed:
+        raise ValueError(f"Unsupported provider {provider!r}; choose {', '.join(sorted(allowed))}")
+    return provider
+
+
+def _model_for(provider: str) -> str:
+    variable = {PROVIDER_GEMINI: "GEMINI_MODEL"}.get(provider, f"{provider.upper()}_MODEL")
+    return os.environ.get(variable, "").strip() or _MODEL_DEFAULTS[provider]
+
+
+def provider_client_kwargs(provider: str) -> dict:
+    """Configure the existing OpenAI-compatible runtime for the selected API."""
+    if provider not in _SDK_PROVIDERS:
+        raise ValueError(f"Provider {provider!r} does not use this SDK runtime")
+    key_name = _PROVIDER_KEYS[provider]
+    key = os.environ.get(key_name, "").strip()
+    if not key or "..." in key or key.startswith("your-"):
+        raise RuntimeError(f"Missing {key_name}. Set it in the local .env file.")
+    urls = {PROVIDER_OPENROUTER: OPENROUTER_BASE_URL,
+            PROVIDER_MISTRAL: MISTRAL_BASE_URL, PROVIDER_COHERE: COHERE_BASE_URL}
+    result = {"api_key": key}
+    if provider in urls:
+        result["base_url"] = (os.environ.get(f"{provider.upper()}_BASE_URL", "").strip()
+                              or urls[provider])
+    return result
+
 def get_blue_provider() -> str:
-    return BLUE_PROVIDER
+    return _selected_provider(os.environ.get("BLUE_PROVIDER", "") or BLUE_PROVIDER)
 
 
 def get_blue_model() -> str:
-    # Hard-locked; env cannot override for the graded Blue Team path.
-    return BLUE_MODEL
+    # Keep the selected Blue model consistent across factories and artifacts.
+    return os.environ.get("BLUE_MODEL", "").strip() or _model_for(get_blue_provider())
 
 
 def get_openrouter_api_key() -> str:
@@ -113,14 +164,8 @@ def get_openrouter_api_key() -> str:
 
 
 def blue_client_kwargs() -> dict:
-    """OpenAI SDK kwargs pointing at OpenRouter (Blue Team only)."""
-    return {
-        "api_key": get_openrouter_api_key() or None,
-        "base_url": (
-            os.environ.get("OPENROUTER_BASE_URL", OPENROUTER_BASE_URL).strip()
-            or OPENROUTER_BASE_URL
-        ),
-    }
+    """Client kwargs for the configured Blue provider."""
+    return provider_client_kwargs(get_blue_provider())
 
 
 def blue_provider_label() -> str:
@@ -128,31 +173,21 @@ def blue_provider_label() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Red Team — openai | gemini
+# Red Team — configured separately from Blue
 # ---------------------------------------------------------------------------
 
 def get_red_provider() -> str:
     raw = (
         os.environ.get("RED_TEAM_PROVIDER")
         or os.environ.get("LLM_PROVIDER")
-        or "openai"
+        or PROVIDER_COHERE
     ).strip().lower()
-    if raw in {"gemini", "google", "adk"}:
-        return PROVIDER_GEMINI
-    return PROVIDER_OPENAI
+    return _selected_provider(raw, allow_gemini=True)
 
 
 def get_red_model() -> str:
     """Model Red Team từ .env (cùng cho default + advance)."""
-    if get_red_provider() == PROVIDER_GEMINI:
-        return (
-            os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
-            or DEFAULT_GEMINI_MODEL
-        )
-    return (
-        os.environ.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL).strip()
-        or DEFAULT_OPENAI_MODEL
-    )
+    return os.environ.get("RED_MODEL", "").strip() or _model_for(get_red_provider())
 
 
 def get_red_model_default() -> str:
@@ -170,7 +205,8 @@ def get_openai_api_key() -> str:
 
 
 def red_openai_client_kwargs() -> dict:
-    return {"api_key": get_openai_api_key() or None}
+    """Back-compatible name: kwargs for any supported compatible Red API."""
+    return provider_client_kwargs(get_red_provider())
 
 
 def red_provider_label(tier: str = "advance") -> str:
@@ -180,7 +216,7 @@ def red_provider_label(tier: str = "advance") -> str:
 
 
 def red_uses_openai_sdk() -> bool:
-    return get_red_provider() == PROVIDER_OPENAI
+    return get_red_provider() in _SDK_PROVIDERS
 
 
 def red_uses_gemini() -> bool:
@@ -201,12 +237,12 @@ def get_model_name() -> str:
 
 
 def uses_openai_sdk() -> bool:
-    """Deprecated name: True when Red Team uses OpenAI SDK (not Gemini ADK)."""
+    """True for an OpenAI-compatible Red API, including Mistral and Cohere."""
     return red_uses_openai_sdk()
 
 
 def openai_compatible_client_kwargs() -> dict:
-    """Default client kwargs = Red Team OpenAI (not Blue/OpenRouter)."""
+    """Client kwargs for the selected Red provider."""
     return red_openai_client_kwargs()
 
 
@@ -217,7 +253,8 @@ def provider_label() -> str:
 def is_harder_model() -> bool:
     """True nếu .env đang trỏ model khó (luna / 3.8) — tuỳ chọn, không phải tên agent."""
     m = get_red_model().lower()
-    if m in {DEFAULT_OPENAI_MODEL.lower(), DEFAULT_GEMINI_MODEL.lower()}:
+    if m in {DEFAULT_OPENAI_MODEL.lower(), DEFAULT_GEMINI_MODEL.lower(),
+             DEFAULT_MISTRAL_MODEL.lower(), DEFAULT_COHERE_MODEL.lower()}:
         return False
     hard = {
         HARD_OPENAI_MODEL.lower(),
@@ -234,32 +271,25 @@ def is_harder_model() -> bool:
     return any(x in m for x in ("gpt-5.6", "pro", "gemini-3.8", "gemini-3.7"))
 
 
-def setup_api_key():
-    """Ensure keys for Blue (OpenRouter) + Red / Red Advance (OpenAI or Gemini)."""
-    if not get_openrouter_api_key():
-        os.environ["OPENROUTER_API_KEY"] = input(
-            "Enter OpenRouter API Key (Blue): "
-        ).strip()
-    print(f"Blue  — {blue_provider_label()}  [LOCKED]")
-
-    red = get_red_provider()
-    model = get_red_model()
-    if red == PROVIDER_GEMINI:
-        if not os.environ.get("GOOGLE_API_KEY", "").strip():
-            os.environ["GOOGLE_API_KEY"] = input("Enter Google API Key (Red): ").strip()
-        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
-        print(f"Red / Red Advance  — gemini:{model}")
-    else:
-        if not get_openai_api_key():
-            os.environ["OPENAI_API_KEY"] = input("Enter OpenAI API Key (Red): ").strip()
-        print(f"Red / Red Advance  — openai:{model}")
-
+def setup_api_key(*, require_blue: bool = True, require_red: bool = True):
+    """Validate only keys used by the requested checkpoints; never echo a key."""
+    if require_blue:
+        blue_client_kwargs()
+        print(f"Blue  — {blue_provider_label()}")
+    if require_red:
+        if red_uses_gemini():
+            if not os.environ.get("GOOGLE_API_KEY", "").strip():
+                raise RuntimeError("Missing GOOGLE_API_KEY. Set it in the local .env file.")
+            os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
+        else:
+            red_openai_client_kwargs()
+        print(f"Red / Red Advance  — {red_provider_label()}")
     print(
         "Bonus: chọn một — Red tối đa +5 (B1) hoặc Red Advance tối đa +10 (B2)."
     )
     if is_harder_model():
         print(
-            f"Model khó ({model}) — tuỳ chọn; không đổi tên agent. "
+            f"Model khó ({get_red_model()}) — tuỳ chọn; không đổi tên agent. "
             f"(Gợi ý: {HARD_OPENAI_MODEL} / {HARD_GEMINI_MODEL})"
         )
 
